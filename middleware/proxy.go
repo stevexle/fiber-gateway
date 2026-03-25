@@ -33,6 +33,11 @@ func ReverseProxy(lb balancer.Balancer) fiber.Handler {
 			c.Request().Header.Set("X-Role", fmt.Sprintf("%v", role))
 		}
 
+		// Standard Proxy Headers (Nginx style)
+		c.Request().Header.Set("X-Real-IP", c.IP())
+		c.Request().Header.Set("X-Forwarded-Proto", c.Protocol())
+		c.Request().Header.Set("X-Forwarded-Host", c.Hostname())
+
 		// Performance: Safe path extraction as string to avoid buffer aliasing during retries
 		originalPath := c.Path()
 		trimmedPath := originalPath

@@ -20,6 +20,12 @@ type RouteConfig struct {
 	RateLimitMax        int      `json:"rate_limit_max"`
 	RateLimitExpiration string   `json:"rate_limit_expiration"` // e.g. "1m", "5s"
 	Protected           bool     `json:"protected"`
+	Cache               bool     `json:"cache"`       // Toggle caching
+	CacheExpiration     string   `json:"cache_exp"`   // Cache TTL e.g. "5m"
+	Compress            bool     `json:"compress"`    // Toggle compression
+	CircuitBreaker      bool     `json:"circuit_breaker"`
+	CBMaxFailures       int      `json:"cb_max_failures"`
+	CBExpirationSeconds int      `json:"cb_exp_seconds"`
 }
 
 type LoggingConfig struct {
@@ -40,6 +46,13 @@ type Config struct {
 
 	RateLimitGlobalMax        int
 	RateLimitGlobalExpiration string
+
+	GzipEnabled bool // Global gzip
+	BodyLimit   int  // Max body limit in MB
+
+	// Global Circuit Breaker defaults
+	CBMaxFailures       int
+	CBExpirationSeconds int
 
 	DBHost     string
 	DBPort     string
@@ -76,6 +89,7 @@ func Load() *Config {
 		}
 
 		globalMax, _ := strconv.Atoi(getEnv("RATE_LIMIT_GLOBAL_MAX", "0"))
+		bodyLimit, _ := strconv.Atoi(getEnv("BODY_LIMIT_MB", "4"))
 		AppConfig = &Config{
 			ServiceName:               getEnv("SERVICE_NAME", "fiber-gateway"),
 			Port:                      getEnv("PORT", "8080"),
@@ -84,6 +98,10 @@ func Load() *Config {
 			CORSAllowOrigins:          getEnv("CORS_ALLOW_ORIGINS", "*"),
 			RateLimitGlobalMax:        globalMax,
 			RateLimitGlobalExpiration: getEnv("RATE_LIMIT_GLOBAL_EXPIRATION", "1m"),
+			GzipEnabled:               getEnv("GZIP_ENABLED", "true") == "true",
+			BodyLimit:                 bodyLimit,
+			CBMaxFailures:             5,
+			CBExpirationSeconds:       30,
 			DBHost:                    getEnv("DB_HOST", "localhost"),
 			DBPort:           getEnv("DB_PORT", "5432"),
 			DBUser:           getEnv("DB_USER", "postgres"),

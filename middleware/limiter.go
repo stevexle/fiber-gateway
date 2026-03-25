@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/fiber-gateway/schemas/response"
@@ -19,7 +20,14 @@ func RateLimiter(max int, expiration time.Duration) fiber.Handler {
 		KeyGenerator: func(c *fiber.Ctx) string {
 			// If user is authenticated, limit by User ID
 			if userID := c.Locals("user_id"); userID != nil {
-				return fmt.Sprintf("user_%v", userID)
+				switch v := userID.(type) {
+				case uint:
+					return "u" + strconv.FormatUint(uint64(v), 10)
+				case int:
+					return "u" + strconv.Itoa(v)
+				default:
+					return fmt.Sprintf("user_%v", v)
+				}
 			}
 			// Fallback to IP address
 			return c.IP()

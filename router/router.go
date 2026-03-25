@@ -12,6 +12,9 @@ import (
 	"github.com/fiber-gateway/middleware"
 	"github.com/fiber-gateway/models"
 	"github.com/fiber-gateway/pkg/balancer"
+	"github.com/gofiber/fiber/v2/middleware/cache"
+	"github.com/gofiber/contrib/circuitbreaker"
+	"github.com/gofiber/fiber/v2/middleware/compress"
 )
 
 // SetupRoutes registers all application routes.
@@ -46,6 +49,13 @@ func registerGlobalMiddleware(app *fiber.App) {
 		}
 		app.Use(middleware.RateLimiter(cfg.RateLimitGlobalMax, expiration))
 		slog.Info("Global rate limiter enabled", "max", cfg.RateLimitGlobalMax, "expiration", expiration)
+	}
+	// Enable compression if configured
+	if cfg.GzipEnabled {
+		app.Use(compress.New(compress.Config{
+			Level: compress.LevelBestSpeed, // Nginx default-ish
+		}))
+		slog.Info("Global Gzip compression enabled")
 	}
 }
 
@@ -114,7 +124,52 @@ func buildHandlersChain(rc config.RouteConfig, lb balancer.Balancer) []fiber.Han
 		handlers = append(handlers, middleware.RequireRole(modelsRoles...))
 	}
 
-	// 4. Final Proxy Handler
+	// 4. Per-route Cache
+	if rc.Cache {
+		exp := 5 * time.Minute
+		if rc.CacheExpiration != "" {
+			if d, err := time.ParseDuration(rc.CacheExpiration); err == nil {
+				exp = d
+			}
+		}
+		handlers = append(handlers, cache.New(cache.Config{
+			Expiration: exp,
+			CacheHeader: "X-Cache",
+			KeyGenerator: func(c *fiber.Ctx) string {
+				return c.Method() + "|" + c.Path()
+			},
+			Next: func(c *fiber.Ctx) bool {
+				// Only cache GET and HEAD requests (Nginx default)
+				return c.Method() != fiber.MethodGet && c.Method() != fiber.MethodHead
+			},
+		}))
+		slog.Info("Cache enabled for route", "path", rc.Path, "exp", exp)
+	}
+
+	// 5. Per-route Compression (if not global)
+	if rc.Compress && !config.AppConfig.GzipEnabled {
+		handlers = append(handlers, compress.New())
+	}
+
+	// 6. Circuit Breaker
+	if rc.CircuitBreaker {
+		maxFail := config.AppConfig.CBMaxFailures
+		if rc.CBMaxFailures > 0 {
+			maxFail = rc.CBMaxFailures
+		}
+		exp := time.Duration(config.AppConfig.CBExpirationSeconds) * time.Second
+		if rc.CBExpirationSeconds > 0 {
+			exp = time.Duration(rc.CBExpirationSeconds) * time.Second
+		}
+		cb := circuitbreaker.New(circuitbreaker.Config{
+			FailureThreshold: maxFail,
+			Timeout:          exp,
+		})
+		handlers = append(handlers, circuitbreaker.Middleware(cb))
+		slog.Info("Circuit breaker enabled for route", "path", rc.Path, "threshold", maxFail, "expiration", exp)
+	}
+
+	// 7. Final Proxy Handler
 	handlers = append(handlers, middleware.ReverseProxy(lb))
 
 	return handlers

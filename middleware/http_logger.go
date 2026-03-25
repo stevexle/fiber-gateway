@@ -2,51 +2,41 @@ package middleware
 
 import (
 	"slices"
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/fiber-gateway/config"
 	"github.com/fiber-gateway/pkg/logger"
 	"github.com/gofiber/fiber/v2"
+	"github.com/valyala/bytebufferpool"
 )
 
 func isSkipped(path string) bool {
 	return slices.Contains(config.AppConfig.Logging.SkipPaths, path)
 }
 
-func prettyJSON(b []byte) string {
+func getJSONString(b []byte) string {
 	if len(b) == 0 {
 		return ""
-	}
-	var out bytes.Buffer
-	if err := json.Indent(&out, b, "", "  "); err == nil {
-		return out.String()
 	}
 	return string(b)
 }
 
-func prettyHeaders(headers map[string][]string) string {
+func prettyHeaders(headers map[string][]string, buf *bytebufferpool.ByteBuffer) {
 	if len(headers) == 0 {
-		return ""
+		return
 	}
-	var b strings.Builder
-	// Approximate size to reduce reallocations
-	b.Grow(len(headers) * 64)
 	for k, v := range headers {
-		b.WriteString("  ")
-		b.WriteString(logger.ColorGray)
-		b.WriteString(k)
-		b.WriteString(":")
-		b.WriteString(logger.ColorReset)
-		b.WriteString(" ")
-		fmt.Fprintf(&b, "%v", v)
-		b.WriteString("\n")
+		buf.WriteString("  ")
+		buf.WriteString(logger.ColorGray)
+		buf.WriteString(k)
+		buf.WriteString(":")
+		buf.WriteString(logger.ColorReset)
+		buf.WriteString(" ")
+		fmt.Fprintf(buf, "%v", v)
+		buf.WriteString("\n")
 	}
-	return b.String()
 }
 
 // HTTPLogger logs everything with respect to the HTTP request and response (headers, body, etc)
@@ -70,29 +60,32 @@ func HTTPLogger() fiber.Handler {
 
 		// --- Request Logging ---
 		reqHeaders := c.GetReqHeaders()
-		reqBody := prettyJSON(c.Body())
+		reqBody := getJSONString(c.Body())
 
-		var reqSummary strings.Builder
-		reqSummary.Grow(256 + len(reqBody)) // Base size + body
-		fmt.Fprintf(&reqSummary, "%s[HTTP-REQ]%s %s %s %s", logger.ColorCyan, logger.ColorReset, ip, method, originalURL)
-		if h := prettyHeaders(reqHeaders); h != "" {
-			reqSummary.WriteByte('\n')
-			reqSummary.WriteString(h)
+		buf := bytebufferpool.Get()
+		buf.Reset()
+		fmt.Fprintf(buf, "%s[HTTP-REQ]%s %s %s %s", logger.ColorCyan, logger.ColorReset, ip, method, originalURL)
+		
+		if len(reqHeaders) > 0 {
+			buf.WriteByte('\n')
+			prettyHeaders(reqHeaders, buf)
 		}
+		
 		if reqBody != "" {
-			reqSummary.WriteByte('\n')
-			reqSummary.WriteString(logger.ColorGray)
-			reqSummary.WriteString("Body:")
-			reqSummary.WriteString(logger.ColorReset)
-			reqSummary.WriteByte('\n')
-			reqSummary.WriteString(reqBody)
+			buf.WriteByte('\n')
+			buf.WriteString(logger.ColorGray)
+			buf.WriteString("Body:")
+			buf.WriteString(logger.ColorReset)
+			buf.WriteByte('\n')
+			buf.WriteString(reqBody)
 		}
 
-		slog.Info(reqSummary.String(),
+		slog.Info(buf.String(),
 			"ip", ip,
 			"method", method,
 			"path", path,
 		)
+		bytebufferpool.Put(buf)
 
 		err := c.Next()
 
@@ -108,7 +101,7 @@ func HTTPLogger() fiber.Handler {
 		// --- Response Logging ---
 		status := c.Response().StatusCode()
 		resHeaders := c.GetRespHeaders()
-		resBody := prettyJSON(c.Response().Body())
+		resBody := getJSONString(c.Response().Body())
 
 		// Status Color
 		statusColor := logger.ColorGreen
@@ -119,25 +112,27 @@ func HTTPLogger() fiber.Handler {
 			statusColor = logger.ColorRed
 		}
 
-		var resSummary strings.Builder
-		resSummary.Grow(256 + len(resBody))
-		fmt.Fprintf(&resSummary, "%s[HTTP-RES]%s %s %s %s -> %s%d%s (%s)",
+		bufRes := bytebufferpool.Get()
+		bufRes.Reset()
+		fmt.Fprintf(bufRes, "%s[HTTP-RES]%s %s %s %s -> %s%d%s (%s)",
 			logger.ColorCyan, logger.ColorReset, ip, method, originalURL, statusColor, status, logger.ColorReset, time.Since(start))
 
-		if h := prettyHeaders(resHeaders); h != "" {
-			resSummary.WriteByte('\n')
-			resSummary.WriteString(h)
+		if len(resHeaders) > 0 {
+			bufRes.WriteByte('\n')
+			prettyHeaders(resHeaders, bufRes)
 		}
+		
 		if resBody != "" {
-			resSummary.WriteByte('\n')
-			resSummary.WriteString(logger.ColorGray)
-			resSummary.WriteString("Body:")
-			resSummary.WriteString(logger.ColorReset)
-			resSummary.WriteByte('\n')
-			resSummary.WriteString(resBody)
+			bufRes.WriteByte('\n')
+			bufRes.WriteString(logger.ColorGray)
+			bufRes.WriteString("Body:")
+			bufRes.WriteString(logger.ColorReset)
+			bufRes.WriteByte('\n')
+			bufRes.WriteString(resBody)
 		}
 
-		slog.Info(resSummary.String())
+		slog.Info(bufRes.String())
+		bytebufferpool.Put(bufRes)
 
 		// Return nil because the error was already handled by the global error handler
 		// during status capture (i.e. response was written). 

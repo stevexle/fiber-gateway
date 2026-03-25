@@ -3,6 +3,7 @@ module github.com/fiber-gateway
 go 1.26.1
 
 require (
+	github.com/gofiber/contrib/circuitbreaker v0.0.1
 	github.com/gofiber/fiber/v2 v2.52.12
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/joho/godotenv v1.5.1

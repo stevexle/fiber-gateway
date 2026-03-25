@@ -7,11 +7,17 @@
       "path": "/users/*",
       "method": "ALL",
       "roles": ["USER"],
-      "targets": ["http://localhost:9002", "http://localhost:9001"],
+      "targets": ["http://localhost:9002", "http://localhost:9002"],
       "strategy": "least_conn",
       "rate_limit_max": 5,
       "rate_limit_expiration": "10s",
-      "protected": true
+      "protected": true,
+      "circuit_breaker": true,
+      "cb_max_failures": 3,
+      "cb_exp_seconds": 60,
+      "cache": true,
+      "cache_exp": "1m",
+      "compress": true
     },
     {
       "path": "/admin/*",
@@ -19,7 +25,10 @@
       "roles": ["ADMIN", "USER"],
       "targets": ["http://localhost:9003", "http://localhost:9004"],
       "strategy": "round_robin",
-      "protected": true
+      "protected": true,
+      "cache": true,
+      "cache_exp": "1m",
+      "compress": true
     }
   ]
 }

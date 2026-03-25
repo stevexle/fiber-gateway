@@ -50,7 +50,13 @@ func main() {
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  30 * time.Second,
 		// Use a custom BodyLimit to prevent memory exhaustion from large requests
-		BodyLimit: 4 * 1024 * 1024, // 4MB
+		BodyLimit: cfg.BodyLimit * 1024 * 1024, // Convert MB to bytes
+		// Support for reverse proxy headers (Nginx style)
+		ProxyHeader: "X-Forwarded-For",
+		// Performance optimizations for gateway
+		ReadBufferSize:  8 * 1024, // 8KB
+		WriteBufferSize: 8 * 1024, // 8KB
+		Concurrency:     256 * 1024,
 	})
 
 	// Middlewares
