@@ -1,0 +1,25 @@
+{
+  "logging": {
+    "skip_paths": ["/api/v1/health"]
+  },
+  "proxy": [
+    {
+      "path": "/users/*",
+      "method": "ALL",
+      "roles": ["USER"],
+      "targets": ["http://localhost:9002", "http://localhost:9001"],
+      "strategy": "least_conn",
+      "rate_limit_max": 5,
+      "rate_limit_expiration": "10s",
+      "protected": true
+    },
+    {
+      "path": "/admin/*",
+      "method": "ALL",
+      "roles": ["ADMIN", "USER"],
+      "targets": ["http://localhost:9003", "http://localhost:9004"],
+      "strategy": "round_robin",
+      "protected": true
+    }
+  ]
+}

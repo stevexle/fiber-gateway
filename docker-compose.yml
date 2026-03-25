@@ -1,0 +1,40 @@
+services:
+  fiber-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fiber-gateway
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    env_file:
+      - .env
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    # ── Robustness: Docker Internal Logging ──
+    # Prevents Docker's own console log files from filling up the disk
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      - PORT=8080
+      - DB_HOST=${DB_HOST:-host.docker.internal}
+      - ROUTES_CONFIG=/app/routes.json
+    volumes:
+      - ./.env:/app/.env:ro
+      - ./routes.json:/app/routes.json:ro
+      - ./logs:/app/logs:rw
+    networks:
+      - gateway-net
+
+networks:
+  gateway-net:
+    driver: bridge
