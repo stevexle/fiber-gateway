@@ -62,9 +62,10 @@ type Config struct {
 	DBSSLMode  string
 	DBSchema   string
 
-	JWTSecret           []byte
-	JWTAccessExpMinutes time.Duration
-	JWTRefreshExpDays   time.Duration
+	JWTSecret             []byte
+	JWTAccessExpMinutes   time.Duration
+	JWTRefreshExpDays     time.Duration
+	JWTAuthSessionMinutes time.Duration
 
 	Logging LoggingConfig
 	Proxy   []RouteConfig
@@ -140,6 +141,13 @@ func Load() *Config {
 		if val := os.Getenv("JWT_REFRESH_EXPIRATION_DAYS"); val != "" {
 			if days, err := strconv.Atoi(val); err == nil && days > 0 {
 				AppConfig.JWTRefreshExpDays = time.Duration(days) * 24 * time.Hour
+			}
+		}
+
+		AppConfig.JWTAuthSessionMinutes = 5 * time.Minute
+		if val := os.Getenv("JWT_AUTH_SESSION_MINUTES"); val != "" {
+			if min, err := strconv.Atoi(val); err == nil && min > 0 {
+				AppConfig.JWTAuthSessionMinutes = time.Duration(min) * time.Minute
 			}
 		}
 	})

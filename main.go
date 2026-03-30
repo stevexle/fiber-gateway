@@ -85,7 +85,20 @@ func main() {
 	database.DB.AutoMigrate(
 		&models.User{},
 		&models.RefreshToken{},
+		&models.AuthorizeCode{},
+		&models.Client{},
 	)
+
+	// Seed a default client if none exists (Static Setup)
+	var count int64
+	database.DB.Model(&models.Client{}).Count(&count)
+	if count == 0 {
+		database.DB.Create(&models.Client{
+			ClientID:           "fiber-gateway-client",
+			Name:               "My Fiber Gateway App",
+			SignInRedirectURIs: "http://localhost:3000/callback",
+		})
+	}
 
 	// Graceful shutdown
 	c := make(chan os.Signal, 1)

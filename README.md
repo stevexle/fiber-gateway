@@ -12,58 +12,68 @@ A robust, high-performance API Gateway and Reverse Proxy built with **Go** and *
   - `round_robin`: Distributes requests equally across targets.
   - `random`: Randomized target selection.
   - `least_conn`: Forwards requests to the backend with the fewest active connections.
-- **Service Resilience**: Automated failover logic with transparent target switching on backend failure.
+- **Service Resilience**: 
+  - **Automated Retries**: Transparent target switching on backend failure.
+  - **Circuit Breaker**: Prevents cascading failures by "tripping" when a service is unresponsive.
 
 ### 🛡️ Security & Access Control
-- **JWT Authentication**: Built-in credential validation and token management.
+- **Zero-Trust Token Management**: Implements `HttpOnly` and `Secure` cookie strategies out-of-the-box ensuring Frontend/SPAs are bulletproof against XSS attacks.
+- **Dual Authentications**: Support both **PKCE Authorization Code Flow** (for public clients like Web/Mobile) and **Client Credentials Flow** (raw JSON Bearer tokens for M2M microservices).
+- **Dynamic Smart CORS**: Replaces static environment variables with intelligent, database-driven origin validation based on `client_id` with in-memory fast caching.
 - **RBAC (Role-Based Access Control)**: Granular permissions per route (e.g., `ADMIN`, `USER`).
-- **Standardized Responses**: Consistent error and message JSON structure across the entire gateway.
+
+### ⚡ Performance & Optimization
+- **Database Connection Pooling**: Built-in PgSQL connection pooling (`MaxIdleConns`, `MaxOpenConns`) to handle intense microservice workloads without establishing new connections.
+- **Memory Efficient**: Using `bytebufferpool` for zero-allocation logging and internal state management.
+- **Payload Compression**: Global and per-route **Gzip** support (Level: Best Speed).
+- **Response Caching**: Built-in `proxy_cache` behavior with `X-Cache` hit/miss visibility.
+- **Optimized Tuning**: Concurrency up to 256k and tuned buffer sizes (8KB) for gateway traffic.
 
 ### 🚦 Traffic Control
 - **Rate Limiting**:
   - **Global**: Protect your entire infrastructure from DDoS/spikes.
   - **Per-Route**: Granular control for specific API endpoints.
-- **Distributed Awareness**: Supports rate limiting based on User ID (for authenticated traffic) or IP Address (for public traffic).
+- **Distributed Awareness**: Supports rate limiting based on User ID.
 
 ### 📝 Observability & Logging
+- **Compact JSON Logging**: Production-optimized logs (No `json.Indent` overhead).
 - **Logback-Style Rotation**: 
   - Automated **Daily Rotation** triggered at midnight.
   - Archive subfolders: `logs/archive/YYYY-MM-DD/`.
-  - Sophisticated indexing (`%i`) for multiple archives per day.
-- **Structured Slog**: Log lines include Process ID, Goroutine ID, and ANSI-colored levels.
-- **Interactive Console**: Detailed HTTP Request/Response summaries with status-colored output.
+- **Structured Slog**: Log lines include Process ID and Goroutine ID.
 
 ---
 
 ## 🛠️ Configuration
 
-Configure the core gateway behavior in your `.env` file:
+### 1. Environment (`.env`)
 ```env
 SERVICE_NAME=fiber-gateway
 PORT=8080
-DB_HOST=<db-hostname>
-DB_PORT=<db-port>
-DB_USER=<db-username>
-DB_PASSWORD=<db-password>
-DB_NAME=<db-name>
-JWT_SECRET=<long-secure-random-string>
+
+# Performance
+GZIP_ENABLED=true
+BODY_LIMIT_MB=4
+
+# Database
+DB_HOST=host.docker.internal
+DB_PORT=5432
+DB_USER=postgres
+...
 ```
 
 ### 2. Routes (`routes.json`)
-Define your proxy mesh and logging policies:
 ```json
 {
-  "logging": {
-    "skip_paths": ["/api/v1/health"]
-  },
   "proxy": [
     {
       "path": "/users/*",
-      "method": "ALL",
-      "roles": ["USER"],
-      "targets": ["http://svc-1:9001", "http://svc-2:9002"],
       "strategy": "least_conn",
-      "protected": true
+      "protected": true,
+      "circuit_breaker": true,
+      "cb_max_failures": 3,
+      "cache": true,
+      "compress": true
     }
   ]
 }
@@ -73,31 +83,10 @@ Define your proxy mesh and logging policies:
 
 ## 🏁 Getting Started
 
-### Option A: Running with Docker (Recommended)
-The project is optimized for Docker with a lightweight Alpine-based multistage build.
-
-1. **Build and Start**:
-   ```bash
-   docker-compose up -d --build
-   ```
-2. **Check Health**:
-   ```bash
-   docker ps  # Status should show "(healthy)"
-   ```
-3. **View Logs**:
-   ```bash
-   docker logs -f fiber-gateway
-   ```
-
-### Option B: Local Development
-1. **Install Dependencies**:
-   ```bash
-   go mod download
-   ```
-2. **Run Server**:
-   ```bash
-   go run main.go
-   ```
+### Running with Docker (Recommended)
+```bash
+docker compose up -d --build
+```
 
 ---
 
@@ -106,16 +95,11 @@ The project is optimized for Docker with a lightweight Alpine-based multistage b
 | Endpoint | Method | Description |
 | :--- | :--- | :--- |
 | `/api/v1/health` | `GET` | System health check (Whitelisted) |
-| `/api/v1/auth/login` | `GET` | Authenticate and receive JWT |
-| `/api/v1/auth/refresh`| `GET` | Rotate access tokens |
+| `/api/v1/auth/authorize` | `POST` | Get Authorization Code (PKCE Step 1) |
+| `/api/v1/auth/token` | `POST` | Exchange Code for JWT (PKCE Step 2 / M2M flow) |
+| `/api/v1/auth/refresh` | `POST` | Rotate access tokens silently via HttpOnly Cookies |
+| `/api/v1/auth/logout` | `POST` | Revoke tokens & wipe cookies securely |
 | `/*` | `ALL` | Proxied routes defined in `routes.json` |
-
----
-
-## 🛡️ Security Best Practices
-- The Docker image runs as a **non-root user** (`gateway`).
-- Configuration files are mounted as **Read-Only** in production.
-- **Healthcheck** is built-in to the Docker image for automated orchestration recovery.
 
 ---
 

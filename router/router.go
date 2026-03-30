@@ -23,6 +23,8 @@ func SetupRoutes(app *fiber.App) {
 	registerGlobalMiddleware(app)
 
 	api := app.Group("/api/v1")
+	// Apply Smart Dynamic CORS to all API routes
+	api.Use(middleware.DynamicCORS())
 
 	// 2. Health Check
 	api.Get("/health", func(c *fiber.Ctx) error {
@@ -61,9 +63,15 @@ func registerGlobalMiddleware(app *fiber.App) {
 
 func registerInternalAuthRoutes(api fiber.Router) {
 	authGroup := api.Group("/auth")
-	authGroup.Get("/login", handler.Login)
-	authGroup.Get("/refresh", handler.Refresh)
-	authGroup.Get("/logout", handler.Logout)
+	authGroup.Post("/register", handler.RegisterUser)
+	authGroup.Post("/login", handler.Login)
+	authGroup.Post("/authorize", handler.Authorize)
+	authGroup.Post("/token", handler.ExchangeToken)
+	authGroup.Post("/refresh", handler.Refresh)
+	authGroup.Post("/logout", handler.Logout)
+
+	clientGroup := api.Group("/client")
+	clientGroup.Post("/register", handler.RegisterClient)
 }
 
 func registerDynamicProxyRoutes(api fiber.Router, routes []config.RouteConfig) {

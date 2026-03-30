@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PKCE Premium Identity Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-glow: #4f46e5;
+            --bg-dark: #0f172a;
+            --glass-bg: rgba(255, 255, 255, 0.05);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --text: #f8fafc;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-dark);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, rgba(236, 72, 153, 0.1) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(59, 130, 246, 0.15) 0px, transparent 50%);
+            background-attachment: fixed;
+            color: var(--text);
+            font-family: 'Outfit', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 500px;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            background: linear-gradient(to right, #818cf8, #c084fc);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .header p {
+            color: #94a3b8;
+            font-size: 1.1rem;
+        }
+
+        .card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 32px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            margin-bottom: 24px;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .card:hover {
+            border-color: rgba(99, 102, 241, 0.3);
+            transform: translateY(-4px);
+        }
+
+        .step-label {
+            display: inline-block;
+            background: var(--primary);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        h3 {
+            margin: 0 0 16px 0;
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        input {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--glass-border);
+            padding: 14px 16px;
+            border-radius: 12px;
+            color: white;
+            font-size: 1rem;
+            box-sizing: border-box;
+            transition: all 0.2s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--primary);
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        button {
+            width: 100%;
+            background: linear-gradient(to right, #4f46e5, #6366f1);
+            color: white;
+            border: none;
+            padding: 14px;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.3);
+        }
+
+        button:hover {
+            filter: brightness(1.1);
+            transform: scale(1.02);
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        pre {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 20px;
+            border-radius: 12px;
+            overflow-x: auto;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            color: #a5f3fc;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .hidden {
+            display: none;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .status-msg {
+            color: #34d399;
+            margin-top: 12px;
+            font-size: 0.9rem;
+            text-align: center;
+        }
+
+        .metadata {
+            font-size: 0.9rem;
+            color: #94a3b8;
+            margin-bottom: 20px;
+        }
+
+        .metadata b {
+            color: #f1f5f9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>Identity Proxy</h1>
+            <p>Fiber Gateway • PKCE Dashboard</p>
+            <a href="register.html" style="color: var(--primary); text-decoration: none; font-size: 0.9rem;">Register New App →</a>
+        </header>
+
+        <main id="app-root">
+            <!-- Step 1 Card -->
+            <div id="setup-card" class="card">
+                <span class="step-label">Step 1</span>
+                <h3>Secure Gateway Login</h3>
+                <div class="input-group">
+                    <input type="text" id="username" placeholder="Username" value="admin">
+                </div>
+                <div class="input-group">
+                    <input type="password" id="password" placeholder="Password" value="password">
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 24px; font-size: 0.85rem; color: #94a3b8;">
+                    <input type="checkbox" id="remember_me" style="width: 16px; height: 16px; cursor: pointer;">
+                    <label for="remember_me" style="margin: 0; cursor: pointer; text-transform: none; letter-spacing: 0;">Remember this device</label>
+                </div>
+                <button id="btn-login">Verify Identity</button>
+                <div id="login-status" class="status-msg"></div>
+            </div>
+
+            <!-- Step 2 Card -->
+            <div id="authorize-card" class="card hidden">
+                <span class="step-label">Step 2</span>
+                <h3>Confirm Authorization</h3>
+                <div class="metadata">
+                    Requesting access for:<br>
+                    <b>fiber-gateway-client</b>
+                </div>
+                <button id="btn-authorize">Grant Permission (redirects)</button>
+            </div>
+
+            <!-- Step 3 Card -->
+            <div id="token-card" class="card hidden">
+                <span class="step-label">Step 3</span>
+                <h3>Final Exchange</h3>
+                <div class="metadata">
+                    Authorization code received. Performing secure PKCE token swap...
+                </div>
+                <button id="btn-token">Issue Production Tokens</button>
+                <div style="text-align: center; margin-top: 15px;">
+                    <a href="dashboard.html" style="color: #60a5fa; text-decoration: none; font-size: 0.9rem; font-weight: 600;">→ Open Secure Dashboard</a>
+                </div>
+                <pre id="token-response" style="margin-top:20px; word-break: break-all; white-space: pre-wrap;"></pre>
+            </div>
+        </main>
+    </div>
+
+    <script type="module" src="/main.ts"></script>
+</body>
+</html>

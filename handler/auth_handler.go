@@ -1,57 +1,79 @@
 package handler
 
 import (
-	"encoding/base64"
 	"log/slog"
+	"net/url"
 	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/fiber-gateway/models"
-	"github.com/fiber-gateway/schemas/response"
 	"github.com/fiber-gateway/repository"
+	"github.com/fiber-gateway/schemas/response"
 	"github.com/fiber-gateway/utils"
 	"github.com/gofiber/fiber/v2"
 )
 
-func Login(c *fiber.Ctx) error {
+type LoginRequest struct {
+	Username string `json:"username" validate:"required"`
+	Password string `json:"password" validate:"required"`
+}
 
+type AuthorizeRequest struct {
+	ClientID            string `json:"client_id"`
+	RedirectURI         string `json:"redirect_uri"`
+	State               string `json:"state"`
+	CodeChallenge       string `json:"code_challenge"`
+	CodeChallengeMethod string `json:"code_challenge_method"`
+}
+
+type TokenExchangeRequest struct {
+	GrantType    string `json:"grant_type"`
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+	RedirectURI  string `json:"redirect_uri"`
+	Code         string `json:"code"`
+	CodeVerifier string `json:"code_verifier"`
+}
+
+// getToken extracts the token from Authorization header or falls back to a specific cookie
+func getToken(c *fiber.Ctx, cookieName string) string {
 	authHeader := c.Get("Authorization")
-	if !strings.HasPrefix(authHeader, "Basic ") {
-		return response.SendError(c, fiber.StatusUnauthorized, "Missing or invalid Basic Authentication header")
+	if after, ok := strings.CutPrefix(authHeader, "Bearer "); ok {
+		return after
 	}
+	return c.Cookies(cookieName)
+}
 
-	// Decode the base64 string
-	payload, err := base64.StdEncoding.DecodeString(authHeader[6:])
+func RegisterUser(c *fiber.Ctx) error {
+	var user models.User
+	if err := c.BodyParser(&user); err != nil {
+		return response.SendError(c, 400, "Invalid payload")
+	}
+	_, err := repository.CreateUser(user.Username, user.Password, models.RoleUser)
 	if err != nil {
-		return response.SendError(c, fiber.StatusBadRequest, "Malformed Basic authentication string")
+		return response.SendError(c, 500, "Registration failed")
 	}
+	return c.Status(201).JSON(fiber.Map{"message": "User registered"})
+}
 
-	// Basic auth payload is "username:password"
-	parts := strings.SplitN(string(payload), ":", 2)
-	if len(parts) != 2 {
-		return response.SendError(c, fiber.StatusBadRequest, "Invalid Basic authentication payload format")
+func Login(c *fiber.Ctx) error {
+	var req LoginRequest
+	if err := c.BodyParser(&req); err != nil {
+		return response.SendError(c, 400, "Invalid payload")
 	}
-
-	username := parts[0]
-	password := parts[1]
-
-	slog.Info("Login attempt", slog.String("username", username))
-
-	user, err := repository.FindUserByUsername(username)
+	user, err := repository.FindUserByUsername(req.Username)
 	if err != nil {
-		slog.Warn("Login failed: user not found", slog.String("username", username))
 		return response.SendError(c, fiber.StatusUnauthorized, "Invalid credentials")
 	}
 
 	if user.Locked {
-		slog.Warn("Login failed: account is locked", slog.String("username", username))
-		return response.SendError(c, fiber.StatusUnauthorized, "Account is locked due to too many failed login attempts")
+		slog.Warn("Attempt to login to locked account", slog.String("username", req.Username))
+		return response.SendError(c, fiber.StatusUnauthorized, "Account has been locked")
 	}
 
-	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
-	if err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
 		user.Visit++
 		if user.Visit >= 3 {
 			user.Locked = true
@@ -61,11 +83,11 @@ func Login(c *fiber.Ctx) error {
 		}
 
 		if user.Locked {
-			slog.Warn("Account locked due to too many failed attempts", slog.String("username", username))
+			slog.Warn("Account locked due to too many failed attempts", slog.String("username", req.Username))
 			return response.SendError(c, fiber.StatusUnauthorized, "Account has been locked")
 		}
 
-		slog.Warn("Login failed: invalid password", slog.String("username", username))
+		slog.Warn("Login failed: invalid password", slog.String("username", req.Username))
 		return response.SendError(c, fiber.StatusUnauthorized, "Invalid credentials")
 	}
 
@@ -75,67 +97,172 @@ func Login(c *fiber.Ctx) error {
 			slog.Error("Failed to reset user login attempts", slog.String("error", repoErr.Error()))
 		}
 	}
+	token, _ := utils.GenerateSessionToken(user.ID, user.Role)
+	c.Cookie(&fiber.Cookie{
+		Name:     "session_id",
+		Value:    token,
+		Path:     "/",
+		HTTPOnly: true,
+		SameSite: "Lax",
+		Expires:  time.Now().Add(utils.GetAuthSessionExpMinutes()),
+	})
+	return c.JSON(fiber.Map{"message": "Proceed to authorize"})
+}
 
-	accessToken, _ := utils.GenerateAccessToken(user.ID, user.Role)
-	refreshToken, _ := utils.GenerateRefreshToken(user.ID)
+func Authorize(c *fiber.Ctx) error {
+	var req AuthorizeRequest
+	c.BodyParser(&req)
 
-	if err := repository.SaveRefreshToken(models.RefreshToken{
-		UserID:    user.ID,
-		Token:     refreshToken,
-		ExpiresAt: time.Now().Add(utils.GetRefreshExpDays()),
-	}); err != nil {
-		slog.Error("Failed to persist refresh token", slog.String("error", err.Error()))
-		return response.SendError(c, fiber.StatusInternalServerError, "Internal authentication error")
+	token := getToken(c, "session_id")
+	claims, err := utils.ParseToken(token)
+	if err != nil || claims.Type != utils.TokenTypeAuthSession {
+		return response.SendError(c, 401, "A valid Bearer login_session token is required in the Authorization header")
 	}
 
-	slog.Info("Login successful", slog.String("username", username), slog.Any("user_id", user.ID))
+	client, err := repository.FindClientByID(req.ClientID)
+	if err != nil || !isRedirectURIValid(req.RedirectURI, client.SignInRedirectURIs) {
+		return response.SendError(c, 403, "Invalid client or redirect")
+	}
+
+	code, _ := utils.GenerateRandomString(32)
+	repository.CreateAuthorizeCode(&models.AuthorizeCode{
+		Code: code, CodeChallenge: req.CodeChallenge, CodeChallengeMethod: req.CodeChallengeMethod,
+		UserID: claims.UserID, UserRole: claims.Role, ClientID: req.ClientID,
+		RedirectURI: req.RedirectURI, State: req.State, ExpiresAt: time.Now().Add(5 * time.Minute),
+	})
+
+	u, _ := url.Parse(req.RedirectURI)
+	q := u.Query()
+	q.Set("code", code)
+	if req.State != "" { q.Set("state", req.State) }
+	u.RawQuery = q.Encode()
+
+	return c.JSON(fiber.Map{"redirect_uri": u.String()})
+}
+
+func ExchangeToken(c *fiber.Ctx) error {
+	var req TokenExchangeRequest
+	if err := c.BodyParser(&req); err != nil {
+		return response.SendError(c, 400, "Malformed exchange request")
+	}
+
+	if req.GrantType == "client_credentials" {
+		client, err := repository.FindClientByID(req.ClientID)
+		if err != nil {
+			return response.SendError(c, 401, "Invalid client_id")
+		}
+		if !client.IsConfidential {
+			return response.SendError(c, 403, "M2M flow is only allowed for confidential clients")
+		}
+
+		if !repository.VerifyClientSecret(req.ClientSecret, client.ClientSecret) {
+			return response.SendError(c, 401, "Invalid client_secret")
+		}
+
+		token, _ := utils.GenerateClientToken(client.ClientID)
+		return c.JSON(fiber.Map{
+			"access_token": token,
+			"token_type":   "Bearer",
+			"expires_in":   int(utils.GetAccessExpMinutes().Seconds()),
+		})
+	}
+
+	authCode, err := repository.GetAuthorizeCode(req.Code)
+	if err != nil || authCode.ClientID != req.ClientID {
+		return response.SendError(c, 401, "Invalid code or client")
+	}
+
+	client, _ := repository.FindClientByID(req.ClientID)
+	if client.IsConfidential {
+		if !repository.VerifyClientSecret(req.ClientSecret, client.ClientSecret) {
+			return response.SendError(c, 401, "Invalid client_secret for confidential exchange")
+		}
+	} else if req.CodeVerifier == "" {
+		return response.SendError(c, 401, "Security mismatch: Code Verifier is required for public clients")
+	}
+
+	if utils.VerifyPKCE(req.CodeVerifier, authCode.CodeChallenge, authCode.CodeChallengeMethod) != nil {
+		return response.SendError(c, 401, "Invalid PKCE verifier")
+	}
+
+	repository.MarkCodeAsUsed(req.Code)
+	accessToken, _ := utils.GenerateAccessToken(authCode.UserID, authCode.UserRole)
+	refreshToken, _ := utils.GenerateRefreshToken(authCode.UserID)
+	repository.SaveRefreshToken(models.RefreshToken{
+		UserID: authCode.UserID, Token: refreshToken, ExpiresAt: time.Now().Add(utils.GetRefreshExpDays()),
+	})
+
+	c.Cookie(&fiber.Cookie{
+		Name:     "access_token",
+		Value:    accessToken,
+		Path:     "/",
+		HTTPOnly: true,
+		SameSite: "Lax",
+		Expires:  time.Now().Add(utils.GetAccessExpMinutes()),
+	})
+	c.Cookie(&fiber.Cookie{
+		Name:     "refresh_token",
+		Value:    refreshToken,
+		Path:     "/",
+		HTTPOnly: true,
+		SameSite: "Lax",
+		Expires:  time.Now().Add(utils.GetRefreshExpDays()),
+	})
 
 	return c.JSON(fiber.Map{
-		"access_token":  accessToken,
-		"refresh_token": refreshToken,
+		"expires_in": int(utils.GetAccessExpMinutes().Seconds()),
+		"token_type": "Bearer",
+		"message":    "Tokens securely verified and stored via HttpOnly cookies",
 	})
 }
 
 func Refresh(c *fiber.Ctx) error {
-
-	authHeader := c.Get("Authorization")
-
-	if !strings.HasPrefix(authHeader, "Bearer ") {
-		return response.SendError(c, fiber.StatusUnauthorized, "Missing or invalid Bearer token")
+	refreshTokenStr := getToken(c, "refresh_token")
+	if refreshTokenStr == "" {
+		return response.SendError(c, 401, "Missing Bearer refresh_token in Authorization header")
 	}
-
-	// Extract the token without the "Bearer " prefix (7 characters)
-	refreshTokenStr := authHeader[7:]
 
 	token, err := repository.FindAvailableRefreshToken(refreshTokenStr)
-	if err != nil {
-		slog.Warn("Refresh token failed: invalid or expired token")
-		return response.SendError(c, fiber.StatusUnauthorized, "Invalid refresh token")
+	if err != nil || token.ExpiresAt.Before(time.Now()) {
+		return response.SendError(c, 401, "Invalid or expired refresh token")
 	}
 
-	slog.Info("Token refreshed successfully", slog.Any("user_id", token.UserID))
-	accessToken, _ := utils.GenerateAccessToken(token.UserID, models.RoleUser)
+	user, _ := repository.FindUserByID(token.UserID)
+	newAccess, _ := utils.GenerateAccessToken(user.ID, user.Role)
+	
+	c.Cookie(&fiber.Cookie{
+		Name:     "access_token",
+		Value:    newAccess,
+		Path:     "/",
+		HTTPOnly: true,
+		SameSite: "Lax",
+		Expires:  time.Now().Add(utils.GetAccessExpMinutes()),
+	})
 
 	return c.JSON(fiber.Map{
-		"access_token": accessToken,
+		"expires_in": int(utils.GetAccessExpMinutes().Seconds()),
+		"token_type": "Bearer",
+		"message":    "Silent token refresh successful",
 	})
 }
 
 func Logout(c *fiber.Ctx) error {
-
-	authHeader := c.Get("Authorization")
-	if !strings.HasPrefix(authHeader, "Bearer ") {
-		return response.SendError(c, fiber.StatusUnauthorized, "Missing or invalid Bearer token")
+	refreshTokenStr := getToken(c, "refresh_token")
+	if refreshTokenStr != "" {
+		repository.RevokeToken(refreshTokenStr)
 	}
 
-	refreshTokenStr := authHeader[7:]
+	// Wipe cookies securely
+	c.Cookie(&fiber.Cookie{Name: "session_id", Value: "", Path: "/", Expires: time.Now().Add(-time.Hour)})
+	c.Cookie(&fiber.Cookie{Name: "access_token", Value: "", Path: "/", Expires: time.Now().Add(-time.Hour)})
+	c.Cookie(&fiber.Cookie{Name: "refresh_token", Value: "", Path: "/", Expires: time.Now().Add(-time.Hour)})
 
-	err := repository.RevokeToken(refreshTokenStr)
-	if err != nil {
-		slog.Error("Failed to revoke token during logout", slog.String("error", err.Error()))
-		return response.SendError(c, fiber.StatusInternalServerError, "Failed to revoke token")
+	return c.JSON(fiber.Map{"message": "Logged out and token revoked"})
+}
+
+func isRedirectURIValid(input, allowed string) bool {
+	for _, item := range strings.Split(allowed, ",") {
+		if strings.TrimSpace(item) == input { return true }
 	}
-
-	slog.Info("Logout successful")
-	return c.SendStatus(fiber.StatusNoContent)
+	return false
 }

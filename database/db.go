@@ -2,57 +2,50 @@ package database
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 
+	"github.com/fiber-gateway/config"
+	"github.com/fiber-gateway/models"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-
-	"github.com/fiber-gateway/config"
-	"log/slog"
 )
 
 var DB *gorm.DB
 
 func Connect() error {
-	var err error
 	cfg := config.AppConfig
+	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s search_path=%s",
+		cfg.DBHost, cfg.DBUser, cfg.DBPassword, cfg.DBName, cfg.DBPort, cfg.DBSSLMode, cfg.DBSchema)
 
-	dsn := fmt.Sprintf(
-		"host=%s user=%s password=%s dbname=%s port=%s sslmode=%s TimeZone=Asia/Ho_Chi_Minh search_path=%s",
-		cfg.DBHost,
-		cfg.DBUser,
-		cfg.DBPassword,
-		cfg.DBName,
-		cfg.DBPort,
-		cfg.DBSSLMode,
-		cfg.DBSchema,
-	)
+	var err error
+	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
+		PrepareStmt:            true, // Optimize repeated queries
+		SkipDefaultTransaction: true, // Faster writes
+	})
 
-	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		slog.Error("failed to connect to database", "error", err)
 		return err
 	}
 
-	// Optimize connection pool for high-concurrency and parallel prefork processing
-	sqlDB, err := DB.DB()
-	if err == nil {
-		sqlDB.SetMaxIdleConns(10)
-		sqlDB.SetMaxOpenConns(100)
-		sqlDB.SetConnMaxLifetime(time.Hour)
-	}
+	// Connection Pool Optimization
+	sqlDB, _ := DB.DB()
+	sqlDB.SetMaxIdleConns(10)                  // Keep 10 idle connections
+	sqlDB.SetMaxOpenConns(100)                 // Capacity for 100 concurrent connections
+	sqlDB.SetConnMaxLifetime(time.Hour)        // Refresh connections every hour
 
-	slog.Info("connected to database")
-	return nil
+	slog.Info("connected to database", "pool_size", 100)
+
+	// Auto Migration
+	return DB.AutoMigrate(&models.User{}, &models.Client{}, &models.AuthorizeCode{}, &models.RefreshToken{})
 }
 
-// Close gracefully closes the database connection.
 func Close() {
 	if DB != nil {
-		sqlDB, err := DB.DB()
-		if err == nil {
-			_ = sqlDB.Close()
-			slog.Info("database connection closed")
+		if sqlDB, err := DB.DB(); err == nil {
+			slog.Info("closing database connection")
+			sqlDB.Close()
 		}
 	}
 }

@@ -15,31 +15,30 @@ import (
 func JWTProtected() fiber.Handler {
 	return func(c *fiber.Ctx) error {
 
-		// 1. Get the Authorization header
+		// 1. Get the Authorization header or Cookie
+		var tokenStr string
 		authHeader := c.Get("Authorization")
-		if !strings.HasPrefix(authHeader, "Bearer ") {
-			return response.SendError(c, fiber.StatusUnauthorized, "Missing or invalid Bearer token")
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			tokenStr = authHeader[7:]
+		} else if cookie := c.Cookies("access_token"); cookie != "" {
+			tokenStr = cookie
 		}
 
-		// 2. Extract the token string without "Bearer "
-		tokenStr := authHeader[7:]
+		if tokenStr == "" {
+			return response.SendError(c, fiber.StatusUnauthorized, "Missing Bearer token or access_token cookie")
+		}
 
-		// 3. Parse and validate the token via our utils package
 		claims, err := utils.ParseToken(tokenStr)
 		if err != nil {
 			if errors.Is(err, jwt.ErrTokenExpired) {
 				return response.SendError(c, fiber.StatusUnauthorized, "Token is expired")
 			}
-			if errors.Is(err, jwt.ErrTokenMalformed) {
-				return response.SendError(c, fiber.StatusUnauthorized, "Token is malformed (not properly formatted)")
-			}
-			if errors.Is(err, jwt.ErrTokenSignatureInvalid) {
-				return response.SendError(c, fiber.StatusUnauthorized, "Token signature is invalid (tampering detected)")
-			}
-			if errors.Is(err, jwt.ErrTokenNotValidYet) {
-				return response.SendError(c, fiber.StatusUnauthorized, "Token is not valid yet")
-			}
-			return response.SendError(c, fiber.StatusUnauthorized, "Token is completely invalid")
+			return response.SendError(c, fiber.StatusUnauthorized, "Token is invalid")
+		}
+
+		// Security: Only allow tokens specifically issued for Access
+		if claims.Type != utils.TokenTypeAccess {
+			return response.SendError(c, fiber.StatusUnauthorized, "Token is not a valid Access Token")
 		}
 
 		// 4. Attach the UserID and Role to the Fiber Context so subsequent handlers can access it!

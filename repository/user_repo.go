@@ -9,15 +9,14 @@ import (
 
 func FindUserByUsername(username string) (*models.User, error) {
 	var user models.User
-	err := database.DB.
-		Where("username = ?", username).
-		First(&user).Error
+	err := database.DB.Where("username = ?", username).First(&user).Error
+	return &user, err
+}
 
-	if err != nil {
-		return nil, err
-	}
-
-	return &user, nil
+func FindUserByID(id uint) (*models.User, error) {
+	var user models.User
+	err := database.DB.First(&user, id).Error
+	return &user, err
 }
 
 func UpdateUser(user *models.User) error {

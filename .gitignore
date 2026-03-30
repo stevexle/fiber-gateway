@@ -38,3 +38,12 @@ logs/
 /dist/
 fiber-gateway
 main
+
+# Frontend (web-client)
+web-client/node_modules/
+web-client/dist/
+web-client/.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*

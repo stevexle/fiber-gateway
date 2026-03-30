@@ -6,7 +6,7 @@
     {
       "path": "/users/*",
       "method": "ALL",
-      "roles": ["USER"],
+      "roles": ["USER", "SERVICE"],
       "targets": ["http://localhost:9002", "http://localhost:9002"],
       "strategy": "least_conn",
       "rate_limit_max": 5,

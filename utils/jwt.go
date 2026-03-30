@@ -8,69 +8,54 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+const (
+	TokenTypeAccess      = "access"
+	TokenTypeAuthSession = "auth_session"
+)
+
 type Claims struct {
-	UserID uint        `json:"user_id"`
-	Role   models.Role `json:"role"`
+	UserID   uint        `json:"user_id,omitempty"`
+	Role     models.Role `json:"role"`
+	ClientID string      `json:"client_id,omitempty"`
+	Type     string      `json:"type"`
 	jwt.RegisteredClaims
 }
 
-func GetAccessExpMinutes() time.Duration {
-	return config.AppConfig.JWTAccessExpMinutes
-}
+func GetAccessExpMinutes() time.Duration { return config.AppConfig.JWTAccessExpMinutes }
+func GetRefreshExpDays() time.Duration    { return config.AppConfig.JWTRefreshExpDays }
 
-func GetRefreshExpDays() time.Duration {
-	return config.AppConfig.JWTRefreshExpDays
-}
-
-func getJWTSecret() []byte {
-	return config.AppConfig.JWTSecret
+// createToken is a core private helper for DRY
+func createToken(claims Claims, duration time.Duration) (string, error) {
+	claims.ExpiresAt = jwt.NewNumericDate(time.Now().Add(duration))
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(config.AppConfig.JWTSecret)
 }
 
 func GenerateAccessToken(userID uint, role models.Role) (string, error) {
+	return createToken(Claims{UserID: userID, Role: role, Type: TokenTypeAccess}, GetAccessExpMinutes())
+}
 
-	claims := Claims{
-		UserID: userID,
-		Role:   role,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(GetAccessExpMinutes())),
-		},
-	}
+func GenerateClientToken(clientID string) (string, error) {
+	return createToken(Claims{ClientID: clientID, Role: models.RoleService, Type: TokenTypeAccess}, GetAccessExpMinutes())
+}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+func GetAuthSessionExpMinutes() time.Duration { return config.AppConfig.JWTAuthSessionMinutes }
 
-	return token.SignedString(getJWTSecret())
+func GenerateSessionToken(userID uint, role models.Role) (string, error) {
+	return createToken(Claims{UserID: userID, Role: role, Type: TokenTypeAuthSession}, GetAuthSessionExpMinutes())
 }
 
 func GenerateRefreshToken(userID uint) (string, error) {
-
 	claims := jwt.MapClaims{
 		"user_id": userID,
 		"exp":     time.Now().Add(GetRefreshExpDays()).Unix(),
 	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-
-	return token.SignedString(getJWTSecret())
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(config.AppConfig.JWTSecret)
 }
 
 func ParseToken(tokenStr string) (*Claims, error) {
-
-	token, err := jwt.ParseWithClaims(
-		tokenStr,
-		&Claims{},
-		func(t *jwt.Token) (interface{}, error) {
-			return getJWTSecret(), nil
-		},
-	)
-
-	if err != nil {
-		return nil, err
-	}
-
-	claims, ok := token.Claims.(*Claims)
-	if !ok || !token.Valid {
-		return nil, err
-	}
-
-	return claims, nil
+	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (interface{}, error) {
+		return config.AppConfig.JWTSecret, nil
+	})
+	if err != nil || !token.Valid { return nil, err }
+	return token.Claims.(*Claims), nil
 }

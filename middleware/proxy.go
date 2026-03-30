@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/fiber-gateway/pkg/balancer"
+	"github.com/fiber-gateway/utils"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/proxy"
 	"github.com/valyala/bytebufferpool"
@@ -38,12 +39,22 @@ func ReverseProxy(lb balancer.Balancer) fiber.Handler {
 		c.Request().Header.Set("X-Forwarded-Proto", c.Protocol())
 		c.Request().Header.Set("X-Forwarded-Host", c.Hostname())
 
-		// Performance: Safe path extraction as string to avoid buffer aliasing during retries
+		// Performance: Safe path extraction
 		originalPath := c.Path()
 		trimmedPath := originalPath
-		if strings.HasPrefix(originalPath, "/api/v1") {
+		if strings.HasPrefix(originalPath, "/api/v1/") {
 			trimmedPath = originalPath[7:]
+		} else if originalPath == "/api/v1" {
+			trimmedPath = "/"
 		}
+
+		// Observability: Add a Request-ID if not present
+		reqID := c.Get(fiber.HeaderXRequestID)
+		if reqID == "" {
+			reqID, _ = utils.GenerateRandomString(16)
+			c.Set(fiber.HeaderXRequestID, reqID)
+		}
+		c.Request().Header.Set("X-Request-ID", reqID)
 
 		var lastTarget string
 		var lastErr error
