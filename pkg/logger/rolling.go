@@ -1,13 +1,11 @@
 package logger
 
 import (
-	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"time"
 
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -38,10 +36,6 @@ type RollingConfig struct {
 }
 
 // NewRollingFile creates a rolling file that strips ANSI colors before dumping logs.
-// Logback configuration mapping:
-// <maxFileSize>300mb</maxFileSize>    -> MaxSizeMB: 300
-// <totalSizeCap>20GB</totalSizeCap>   -> MaxBackups: 68  (20GB/300MB = 68 backups)
-// <maxHistory>60</maxHistory>         -> MaxAgeDays: 60
 func NewRollingFile(config RollingConfig) io.Writer {
 	if config.Filename == "" {
 		config.Filename = "logs/fiber-gateway.log"
@@ -54,52 +48,30 @@ func NewRollingFile(config RollingConfig) io.Writer {
 		MaxSize:    config.MaxSizeMB,
 		MaxAge:     config.MaxAgeDays,
 		MaxBackups: config.MaxBackups,
-		Compress:   true, // Automatically gzip archive files
+		Compress:   true,
+	}
+
+	// ─── STARTUP ROTATION CHECK ───
+	// If the application starts and the existing log file is from a previous day,
+	// rotate it immediately to maintain daily consistency.
+	if info, err := os.Stat(config.Filename); err == nil {
+		lastMod := info.ModTime()
+		now := time.Now()
+		if lastMod.Year() != now.Year() || lastMod.Month() != now.Month() || lastMod.Day() != now.Day() {
+			_ = roll.Rotate()
+		}
 	}
 
 	// ─── DAILY ROTATION BACKGROUND PROCESS ───
-	// Triggers at midnight to move the current log to a dated archive folder.
-	// Pattern: ${LOG_FOLDER}/archive/YYYY-MM-DD/service.YYYY-MM-DD.i.log
 	go func() {
 		for {
 			now := time.Now()
 			// Calculate next midnight (00:00:01)
 			next := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 1, 0, now.Location())
-			t := time.NewTimer(next.Sub(now))
+			time.Sleep(time.Until(next))
 
-			<-t.C // Wait for midnight
-
-			// 1. Prepare Archive Path
-			// We are archiving yesterday's logs
-			yesterday := time.Now().Add(-24 * time.Hour)
-			dateStr := yesterday.Format("2006-01-02")
-			logDir := filepath.Dir(config.Filename)
-			archiveDir := filepath.Join(logDir, "archive", dateStr)
-			_ = os.MkdirAll(archiveDir, 0755)
-
-			ext := filepath.Ext(config.Filename)
-			base := filepath.Base(config.Filename)
-			nameOnly := strings.TrimSuffix(base, ext)
-
-			// 2. Find next available index (%i)
-			i := 0
-			var targetPath string
-			for {
-				targetPath = filepath.Join(archiveDir, fmt.Sprintf("%s.%s.%d%s", nameOnly, dateStr, i, ext))
-				if _, err := os.Stat(targetPath); os.IsNotExist(err) {
-					break
-				}
-				i++
-			}
-
-			// 3. Perform the move
-			// Normal OS rename is safe on Mac/Linux even with open handles.
-			// lumberjack will automatically create a new file on the next Write.
-			if err := os.Rename(config.Filename, targetPath); err != nil {
-				slog.Error("Daily log archive failed", slog.String("error", err.Error()), slog.String("path", targetPath))
-			} else {
-				// Also trigger lumberjack's internal rotation to clear older backups
-				_ = roll.Rotate()
+			if err := roll.Rotate(); err != nil {
+				slog.Error("Scheduled daily log rotation failed", slog.String("error", err.Error()))
 			}
 		}
 	}()
