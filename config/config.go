@@ -38,6 +38,7 @@ type RoutesJSON struct {
 }
 
 type Config struct {
+	Environment      string
 	ServiceName      string
 	Port             string
 	LogLevel         string
@@ -65,7 +66,8 @@ type Config struct {
 	JWTSecret             []byte
 	JWTAccessExpMinutes   time.Duration
 	JWTRefreshExpDays     time.Duration
-	JWTAuthSessionMinutes time.Duration
+	JWTSsoSessionDays     time.Duration
+	JWTAuthCodeExpMinutes time.Duration
 
 	Logging LoggingConfig
 	Proxy   []RouteConfig
@@ -144,10 +146,22 @@ func Load() *Config {
 			}
 		}
 
-		AppConfig.JWTAuthSessionMinutes = 5 * time.Minute
-		if val := os.Getenv("JWT_AUTH_SESSION_MINUTES"); val != "" {
+		AppConfig.Environment = "development"
+		if val := os.Getenv("ENV"); val != "" {
+			AppConfig.Environment = val
+		}
+
+		AppConfig.JWTSsoSessionDays = 30 * 24 * time.Hour
+		if val := os.Getenv("JWT_SSO_SESSION_DAYS"); val != "" {
+			if days, err := strconv.Atoi(val); err == nil && days > 0 {
+				AppConfig.JWTSsoSessionDays = time.Duration(days) * 24 * time.Hour
+			}
+		}
+
+		AppConfig.JWTAuthCodeExpMinutes = 5 * time.Minute
+		if val := os.Getenv("JWT_AUTH_CODE_EXP_MINUTES"); val != "" {
 			if min, err := strconv.Atoi(val); err == nil && min > 0 {
-				AppConfig.JWTAuthSessionMinutes = time.Duration(min) * time.Minute
+				AppConfig.JWTAuthCodeExpMinutes = time.Duration(min) * time.Minute
 			}
 		}
 	})

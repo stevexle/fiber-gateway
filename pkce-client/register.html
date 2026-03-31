@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Provisioning | Client Management</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-glow: #4f46e5;
+            --secondary: #a855f7;
+            --bg-dark: #0f172a;
+            --glass: rgba(255, 255, 255, 0.05);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --text-muted: #64748b;
+            --required: #f43f5e;
+        }
+
+        body {
+            margin: 0; background: var(--bg-dark);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.1) 0px, transparent 40%),
+                radial-gradient(at 100% 100%, rgba(168, 85, 247, 0.1) 0px, transparent 40%);
+            color: #f1f5f9; font-family: 'Outfit', sans-serif;
+            display: flex; justify-content: center; min-height: 100vh; padding: 60px 20px;
+        }
+
+        .container { width: 100%; max-width: 960px; animation: slideUp 0.6s ease-out; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: translateY(0); } }
+
+        .card { background: var(--glass); backdrop-filter: blur(24px); border: 1px solid var(--glass-border); border-radius: 40px; padding: 56px; box-shadow: 0 50px 100px -20px rgba(0, 0, 0, 0.5); }
+
+        h2 { margin: 0 0 8px 0; font-size: 2.5rem; font-weight: 700; letter-spacing: -0.02em; background: linear-gradient(to right, #818cf8, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .subtitle { color: #94a3b8; margin-bottom: 48px; font-size: 1.05rem; font-weight: 300; }
+
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-bottom: 40px; }
+        .full-width { grid-column: span 2; }
+
+        label { display: block; margin-bottom: 12px; font-weight: 700; font-size: 0.8rem; color: #cbd5e1; text-transform: uppercase; letter-spacing: 0.1em; }
+        label .req { color: var(--required); margin-left: 4px; }
+        label .opt { color: var(--text-muted); font-weight: 400; font-size: 0.75rem; margin-left: 8px; text-transform: none; font-style: italic; }
+        
+        input, textarea { width: 100%; background: rgba(0,0,0,0.3); border: 1px solid var(--glass-border); padding: 16px 20px; border-radius: 16px; color: white; font-size: 1rem; box-sizing: border-box; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); font-family: inherit; }
+        input:focus { outline: none; border-color: var(--primary); background: rgba(255,255,255,0.06); box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1); }
+
+        .section-title { grid-column: span 2; margin: 32px 0 16px 0; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.3em; color: var(--primary); font-weight: 800; border-bottom: 1px solid var(--glass-border); padding-bottom: 12px; display: flex; align-items: center; gap: 10px; }
+        .section-title svg { filter: drop-shadow(0 0 2px var(--primary)); }
+
+        .checkbox-card { background: rgba(99, 102, 241, 0.04); border: 1px solid rgba(99, 102, 241, 0.15); border-radius: 20px; padding: 28px; display: flex; align-items: center; gap: 20px; cursor: pointer; transition: 0.4s; }
+        .checkbox-card:hover { border-color: var(--primary); background: rgba(99, 102, 241, 0.08); transform: translateY(-2px); }
+        .checkbox-card input { width: 24px; height: 24px; accent-color: var(--primary); cursor: pointer; }
+
+        button { width: 100%; background: linear-gradient(135deg, #4f46e5, #a855f7); color: white; border: none; padding: 22px; border-radius: 20px; font-size: 1.15rem; font-weight: 700; cursor: pointer; transition: 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); margin-top: 24px; box-shadow: 0 25px 50px -10px rgba(79, 70, 229, 0.5); }
+        button:hover { filter: contrast(1.1); transform: translateY(-5px) scale(1.01); box-shadow: 0 35px 60px -10px rgba(79, 70, 229, 0.6); }
+        button:active { transform: scale(0.99) translateY(-2px); }
+
+        .result-section { display: none; margin-top: 56px; animation: fadeIn 0.5s ease-out forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        pre { background: #000; padding: 32px; border-radius: 24px; color: #10b981; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.9rem; border: 1px solid #10b98144; line-height: 1.6; word-break: break-all; white-space: pre-wrap; box-shadow: inset 0 0 40px rgba(16, 185, 129, 0.05); }
+
+        .back-link { text-align: center; margin-top: 48px; }
+        .back-link a { color: #64748b; text-decoration: none; font-size: 0.95rem; font-weight: 500; transition: 0.3s; }
+        .back-link a:hover { color: var(--text-muted); text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h2>Provision Entity</h2>
+            <p class="subtitle">Onboard a secure OAuth 2.0 / OpenID Connect Client into your ecosystem.</p>
+            
+            <form id="register-form">
+                <div class="form-grid">
+                    <div class="section-title">Global Identity</div>
+                    
+                    <div class="form-group">
+                        <label>Application Name <span class="req">*</span></label>
+                        <input type="text" id="name" placeholder="Mobile-Wealth-Dashboard" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Target Domain <span class="opt">(Environment Tag)</span></label>
+                        <input type="text" id="realm_id" placeholder="prod-cluster-01">
+                    </div>
+
+                    <div class="form-group full-width">
+                        <label>Authorized Redirect Ecosystem <span class="req">*</span> <span class="opt">(Comma separated redirect_uris)</span></label>
+                        <input type="text" id="redirect_uris" placeholder="http://localhost:3000/callback" required>
+                    </div>
+
+                    <div class="section-title">Security Governance</div>
+
+                    <div class="form-group full-width">
+                        <label class="checkbox-card" for="is_confidential">
+                            <input type="checkbox" id="is_confidential">
+                            <div style="display: flex; flex-direction: column; gap: 4px;">
+                                <span style="font-weight: 700;">Confidential App Type</span>
+                                <span style="color: #94a3b8; font-size: 0.85rem; font-weight: 400; text-transform: none;">Requires server-side secret validation. Disable for SPAs/Mobile apps.</span>
+                            </div>
+                        </label>
+                    </div>
+
+                    <div class="form-group">
+                        <label>CORS Policy <span class="opt">(Allowed Origins)</span></label>
+                        <input type="text" id="web_origins" placeholder="http://localhost:3000">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Sign Out Redirection <span class="opt">(Optional)</span></label>
+                        <input type="text" id="logout_uris" placeholder="http://localhost:3000/logout">
+                    </div>
+
+                    <div class="section-title">Visual Profile <span class="opt">(Meta)</span></div>
+
+                    <div class="form-group">
+                        <label>Iconography URI</label>
+                        <input type="url" id="icon_url" placeholder="https://cdn.brand.com/app-logo.png">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Documentation URI</label>
+                        <input type="url" id="home_page_url" placeholder="https://docs.app.com/identity">
+                    </div>
+                </div>
+
+                <button type="submit">Deploy Client Secret & Provision</button>
+            </form>
+
+            <div id="result" class="result-section">
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 24px;">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="3">
+                        <circle cx="12" cy="12" r="10"/>
+                        <path d="M8 12l3 3 5-5"/>
+                    </svg>
+                    <h4 style="color: #10b981; margin: 0; font-size: 1.2rem; letter-spacing: 0.05em; font-weight: 700;">PROVISIONING SUCCESSFUL</h4>
+                </div>
+                <pre id="client-data"></pre>
+            </div>
+            
+            <div class="back-link">
+                <a href="index.html">← Return to Gateway Dashboard</a>
+            </div>
+        </div>
+    </div>
+    <script type="module" src="/register.ts"></script>
+</body>
+</html>

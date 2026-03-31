@@ -39,3 +39,11 @@ main
 # Logs
 *.log
 logs/
+
+# Frontend (managed separately)
+pkce-client/
+
+# Other
+coverage/
+tmp/
+.temp/

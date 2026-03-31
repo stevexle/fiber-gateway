@@ -18,6 +18,9 @@ type Client struct {
 	Name                string `json:"name"`
 	// IsConfidential indicates if the client can securely store secrets (True for Server-side, False for SPAs/Mobile).
 	IsConfidential      bool   `json:"is_confidential"`
+	// ClientType distinguishes the runtime environment: "web" (SPA/Browser), "mobile" (iOS/Android), "service" (M2M).
+	// This drives token delivery strategy: cookies for web, response body for mobile.
+	ClientType          string `gorm:"default:'web'" json:"client_type"`
 	// IconURL is a link to the application logo.
 	IconURL             string `json:"icon_url"`
 	// HomePageURL is the main URL of the client application.

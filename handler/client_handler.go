@@ -15,6 +15,8 @@ func RegisterClient(c *fiber.Ctx) error {
 		RealmID             string `json:"realm_id"`
 		Description         string `json:"description"`
 		IsConfidential       bool   `json:"is_confidential"`
+		// ClientType: "web" | "mobile" | "service"
+		ClientType          string `json:"client_type"`
 		IconURL             string `json:"icon_url"`
 		HomePageURL         string `json:"home_page_url"`
 		PrivacyPolicyURL    string `json:"privacy_policy_url"`
@@ -40,12 +42,18 @@ func RegisterClient(c *fiber.Ctx) error {
 		return response.SendError(c, 400, "at least one redirect_uri is required")
 	}
 
+	clientType := req.ClientType
+	if clientType == "" {
+		clientType = "web" // default
+	}
+
 	client := models.Client{
 		ClientID:            req.ClientID,
 		Name:                req.Name,
 		RealmID:             req.RealmID,
 		Description:         req.Description,
 		IsConfidential:      req.IsConfidential,
+		ClientType:          clientType,
 		IconURL:             req.IconURL,
 		HomePageURL:         req.HomePageURL,
 		PrivacyPolicyURL:    req.PrivacyPolicyURL,

@@ -66,6 +66,7 @@ func registerInternalAuthRoutes(api fiber.Router) {
 	authGroup.Post("/register", handler.RegisterUser)
 	authGroup.Post("/login", handler.Login)
 	authGroup.Post("/authorize", handler.Authorize)
+	authGroup.Get("/authorize", handler.Authorize)
 	authGroup.Post("/token", handler.ExchangeToken)
 	authGroup.Post("/refresh", handler.Refresh)
 	authGroup.Post("/logout", handler.Logout)

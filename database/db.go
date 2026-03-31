@@ -29,16 +29,22 @@ func Connect() error {
 		return err
 	}
 
-	// Connection Pool Optimization
+	// High Performance Connection Pool Tuning
 	sqlDB, _ := DB.DB()
-	sqlDB.SetMaxIdleConns(10)                  // Keep 10 idle connections
-	sqlDB.SetMaxOpenConns(100)                 // Capacity for 100 concurrent connections
-	sqlDB.SetConnMaxLifetime(time.Hour)        // Refresh connections every hour
+	sqlDB.SetMaxIdleConns(25)                   // Keep more hot connections ready
+	sqlDB.SetMaxOpenConns(250)                  // Support high peak concurrency
+	sqlDB.SetConnMaxLifetime(time.Hour)         // Cycle connections hourly
+	sqlDB.SetConnMaxIdleTime(5 * time.Minute)   // Retire idle connections quickly
 
-	slog.Info("connected to database", "pool_size", 100)
+	slog.Info("Database pool tuned", "max_open", 250, "max_idle", 25)
 
 	// Auto Migration
-	return DB.AutoMigrate(&models.User{}, &models.Client{}, &models.AuthorizeCode{}, &models.RefreshToken{})
+	return DB.AutoMigrate(
+		&models.User{}, 
+		&models.Client{}, 
+		&models.AuthorizeCode{}, 
+		&models.RefreshToken{},
+	)
 }
 
 func Close() {

@@ -1,8 +1,10 @@
 package middleware
 
 import (
+	"log/slog"
 	"strings"
 	"sync"
+	"github.com/fiber-gateway/config"
 	"github.com/fiber-gateway/repository"
 	"github.com/fiber-gateway/utils"
 	"github.com/gofiber/fiber/v2"
@@ -20,27 +22,55 @@ func DynamicCORS() fiber.Handler {
 			return c.Next()
 		}
 
+		// helper to set standard headers
+		setHeaders := func(ctx *fiber.Ctx, org string) {
+			ctx.Set("Access-Control-Allow-Origin", org)
+			ctx.Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,PATCH,OPTIONS")
+			ctx.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID")
+			ctx.Set("Access-Control-Allow-Credentials", "true")
+			ctx.Set("Access-Control-Max-Age", "3600")
+		}
+
+		// 1. Check Global Fallback FIRST (from config .env)
+		globalAllowed := strings.Split(config.AppConfig.CORSAllowOrigins, ",")
+		for _, g := range globalAllowed {
+			trimmed := strings.TrimSpace(g)
+			if trimmed == origin || trimmed == "*" {
+				// Mirror the specific origin to satisfy the 'Allow-Credentials' requirement
+				setHeaders(c, origin)
+				if c.Method() == "OPTIONS" {
+					return c.SendStatus(204)
+				}
+				return c.Next()
+			}
+		}
+		
+		// Log if we didn't match the fallback
+		slog.Debug("CORS fallback check missed", "origin", origin, "config", config.AppConfig.CORSAllowOrigins)
+
 		var clientID string
 
-		// 1. Identification
+		// 2. Identification from Request
 		clientID = c.Query("client_id")
 		if clientID == "" {
-			type basicReq struct { ClientID string `json:"client_id"` }
+			type basicReq struct {
+				ClientID string `json:"client_id"`
+			}
 			var br basicReq
 			_ = c.BodyParser(&br)
 			clientID = br.ClientID
 		}
 		if clientID == "" {
 			authHeader := c.Get("Authorization")
-			if strings.HasPrefix(authHeader, "Bearer ") {
-				token := strings.TrimPrefix(authHeader, "Bearer ")
+			if after, ok := strings.CutPrefix(authHeader, "Bearer "); ok {
+				token := after
 				if claims, err := utils.ParseToken(token); err == nil {
 					clientID = claims.ClientID
 				}
 			}
 		}
 
-		// 2. Cache Lookup & Validation
+		// 3. Cache Lookup & Validation
 		if clientID != "" {
 			var allowedOrigins []string
 			if val, ok := originCache.Load(clientID); ok {
@@ -58,11 +88,7 @@ func DynamicCORS() fiber.Handler {
 			// Validate
 			for _, allowed := range allowedOrigins {
 				if strings.TrimSpace(allowed) == origin {
-					c.Set("Access-Control-Allow-Origin", origin)
-					c.Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,PATCH,OPTIONS")
-					c.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID")
-					c.Set("Access-Control-Allow-Credentials", "true")
-					c.Set("Access-Control-Max-Age", "3600")
+					setHeaders(c, origin)
 					break
 				}
 			}

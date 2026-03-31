@@ -35,7 +35,6 @@ function initDashboard() {
     const stateJson = getCookie('pkce_state');
     const loading = document.getElementById('loading');
     const dashboardCard = document.getElementById('dashboard-card');
-    const tokenDisplay = document.getElementById('access-token-display');
 
     if (!stateJson) {
         window.location.href = '/index.html';
@@ -47,7 +46,6 @@ function initDashboard() {
         if (currentState.loggedIn) {
             if (loading) loading.style.display = 'none';
             if (dashboardCard) dashboardCard.style.display = 'block';
-            if (tokenDisplay) tokenDisplay.textContent = "Your Tokens are now 100% invisible to Javascript! (HttpOnly Cookie Mode active). You can still call APIs and the browser will attach them automatically.";
         } else {
             window.location.href = '/index.html';
         }
@@ -60,9 +58,13 @@ function initDashboard() {
 // Attach logout event
 const btnLogout = document.getElementById('btn-logout');
 if (btnLogout) {
-    btnLogout.addEventListener('click', () => {
+    btnLogout.addEventListener('click', async () => {
+        try {
+            await axios.post(`${API_BASE}/auth/logout`);
+        } catch (e) {
+            console.warn('Server logout failed', e);
+        }
         eraseCookie('pkce_state');
-        eraseCookie('remembered_choice');
         window.location.href = '/index.html';
     });
 }
@@ -90,12 +92,10 @@ async function callProtectedAPI() {
                 const refreshRes = await axios.post(`${API_BASE}/auth/refresh`);
                 
                 // Refresh successful! Get new pair silently
-                // Update UI visually
-                const tokenDisplay = document.getElementById('access-token-display');
-                if (tokenDisplay) tokenDisplay.textContent = "Refreshed invisibly via HttpOnly Cookie!";
+                if (apiResponse) apiResponse.textContent += `\n[SUCCESS] Silent Refresh complete! Retrying original API...`;
                 
                 // Resave Cookie
-                const days = getCookie('remembered_choice') ? 30 : undefined;
+                const days = currentState.rememberMe ? 30 : undefined;
                 setCookie('pkce_state', JSON.stringify(currentState), days);
 
                 if (apiResponse) apiResponse.textContent += `\n[SUCCESS] Silent Refresh complete! Retrying original API...`;
@@ -110,7 +110,6 @@ async function callProtectedAPI() {
                 if (apiResponse) apiResponse.textContent += `\n[FAILED] Refresh Token invalid or expired. Logging out.`;
                 setTimeout(() => {
                     eraseCookie('pkce_state');
-                    eraseCookie('remembered_choice');
                     window.location.href = '/index.html';
                 }, 2000);
             }
@@ -125,4 +124,4 @@ if (btnTestApi) {
 }
 
 // Boot up
-setTimeout(initDashboard, 500);
+document.addEventListener('DOMContentLoaded', initDashboard);
