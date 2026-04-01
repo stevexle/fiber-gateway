@@ -17,7 +17,6 @@
 package logger
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -25,26 +24,42 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/valyala/bytebufferpool"
+	"github.com/valyala/fasthttp"
 )
 
 // GlobalWriter is the default writer used for non-slog output (e.g. pretty console logs).
 // It can be overridden in main.go to point to a multi-writer (stdout + file).
 var GlobalWriter io.Writer = os.Stdout
 
+var (
+	pid        = os.Getpid()
+	pidStr     = fmt.Sprintf("pid-%d/goroutine-", pid)
+)
+
 // ─── Goroutine ID ────────────────────────────────────────────────────────────
 
 // goroutineID extracts the current goroutine ID from the runtime stack.
-// Equivalent to %thread in logback.
+// Optimized for zero-allocations and speed.
 func goroutineID() int64 {
-	var buf [64]byte
+	var buf [32]byte
 	n := runtime.Stack(buf[:], false)
-	// Stack header: "goroutine 42 [running]:\n..."
-	s := strings.TrimPrefix(string(buf[:n]), "goroutine ")
-	idStr := strings.Fields(s)[0]
-	id, _ := strconv.ParseInt(idStr, 10, 64)
+	if n < 11 { // Length of "goroutine " is 10
+		return 0
+	}
+	// The stack starts with "goroutine 123456 ..."
+	// We parse the digits directly from the byte slice to avoid string copies.
+	var id int64
+	for i := 10; i < n; i++ {
+		c := buf[i]
+		if c < '0' || c > '9' {
+			break
+		}
+		id = id*10 + int64(c-'0')
+	}
 	return id
 }
 
@@ -59,21 +74,6 @@ const (
 	ColorCyan   = "\033[36m"
 	ColorGray   = "\033[90m"
 )
-
-// levelLabel returns a left-aligned, fixed-width 5-char level string.
-// Mirrors logback's %-5level.
-func levelLabel(l slog.Level) string {
-	switch {
-	case l >= slog.LevelError:
-		return ColorRed + "ERROR" + ColorReset
-	case l >= slog.LevelWarn:
-		return ColorYellow + "WARN " + ColorReset
-	case l >= slog.LevelInfo:
-		return ColorCyan + "INFO " + ColorReset
-	default:
-		return ColorPurple + "DEBUG" + ColorReset
-	}
-}
 
 // ─── Logger name ─────────────────────────────────────────────────────────────
 
@@ -146,19 +146,30 @@ func (h *LogbackHandler) Enabled(_ context.Context, level slog.Level) bool {
 // The output format is:
 //
 //	<timestamp> <LEVEL> [goroutine-<id>] <name>: <message> [key=value ...]
+// Handle formats r as a single Logback-style log line and writes it to the
+// handler's output writer. It implements [slog.Handler].
 func (h *LogbackHandler) Handle(_ context.Context, r slog.Record) error {
-	var buf bytes.Buffer
+	buf := bytebufferpool.Get()
+	defer bytebufferpool.Put(buf)
 
-	// %d{yyyy-MM-dd HH:mm:ss.SSS}
-	ts := r.Time.Format("2006-01-02 15:04:05.000")
+	// 1. Timestamp (Zero-copy append)
+	buf.WriteString(ColorGray)
+	buf.B = r.Time.AppendFormat(buf.B, "2006-01-02 15:04:05.000")
+	buf.WriteString(ColorReset)
+	buf.WriteByte(' ')
 
-	// %-5level
-	level := levelLabel(r.Level)
+	// 2. Level
+	h.appendLevel(buf, r.Level)
+	buf.WriteByte(' ')
 
-	// [%thread]  →  PID/goroutine ID
-	thread := fmt.Sprintf("pid-%d/goroutine-%d", os.Getpid(), goroutineID())
+	// 3. PID/Goroutine ID (Optimized append)
+	buf.WriteString(ColorPurple)
+	buf.WriteString(pidStr)
+	buf.B = fasthttp.AppendUint(buf.B, int(goroutineID()))
+	buf.WriteString(ColorReset)
+	buf.WriteByte(' ')
 
-	// %logger{36} -> file_name.go
+	// 4. Logger Name (Source File)
 	var srcFile string
 	if r.PC != 0 {
 		fs := runtime.CallersFrames([]uintptr{r.PC})
@@ -170,32 +181,75 @@ func (h *LogbackHandler) Handle(_ context.Context, r slog.Record) error {
 	if srcFile == "" {
 		srcFile = h.name
 	}
-	name := truncateName(srcFile, 36)
+	buf.WriteString(ColorGreen)
+	buf.WriteString(truncateName(srcFile, 36))
+	buf.WriteString(ColorReset)
+	buf.WriteString(": ")
 
-	// %msg
-	fmt.Fprintf(&buf, "%s%s%s %s %s[%s]%s %s%s%s: %s",
-		ColorGray, ts, ColorReset,
-		level,
-		ColorPurple, thread, ColorReset,
-		ColorGreen, name, ColorReset,
-		r.Message)
+	// 5. Message
+	buf.WriteString(r.Message)
 
-	// inherited attrs (from WithAttrs)
+	// 6. Inherited Attrs
 	for _, a := range h.attrs {
-		fmt.Fprintf(&buf, " %s=%v", a.Key, a.Value)
+		buf.WriteByte(' ')
+		buf.WriteString(a.Key)
+		buf.WriteByte('=')
+		appendValue(buf, a.Value)
 	}
 
-	// record attrs
+	// 7. Record Attrs
 	r.Attrs(func(a slog.Attr) bool {
-		fmt.Fprintf(&buf, " %s=%v", a.Key, a.Value)
+		buf.WriteByte(' ')
+		buf.WriteString(a.Key)
+		buf.WriteByte('=')
+		appendValue(buf, a.Value)
 		return true
 	})
 
-	// %n
+	// 8. Newline
 	buf.WriteByte('\n')
 
 	_, err := h.out.Write(buf.Bytes())
 	return err
+}
+
+func (h *LogbackHandler) appendLevel(buf *bytebufferpool.ByteBuffer, l slog.Level) {
+	switch {
+	case l >= slog.LevelError:
+		buf.WriteString(ColorRed)
+		buf.WriteString("ERROR")
+	case l >= slog.LevelWarn:
+		buf.WriteString(ColorYellow)
+		buf.WriteString("WARN ")
+	case l >= slog.LevelInfo:
+		buf.WriteString(ColorCyan)
+		buf.WriteString("INFO ")
+	default:
+		buf.WriteString(ColorPurple)
+		buf.WriteString("DEBUG")
+	}
+	buf.WriteString(ColorReset)
+}
+
+func appendValue(buf *bytebufferpool.ByteBuffer, v slog.Value) {
+	switch v.Kind() {
+	case slog.KindString:
+		buf.WriteString(v.String())
+	case slog.KindInt64:
+		buf.B = fasthttp.AppendUint(buf.B, int(v.Int64()))
+	case slog.KindBool:
+		if v.Bool() {
+			buf.WriteString("true")
+		} else {
+			buf.WriteString("false")
+		}
+	case slog.KindDuration:
+		buf.WriteString(v.Duration().String())
+	case slog.KindTime:
+		buf.B = v.Time().AppendFormat(buf.B, time.RFC3339)
+	default:
+		buf.B = fmt.Appendf(buf.B, "%v", v.Any())
+	}
 }
 
 // WithAttrs returns a new handler whose attributes consist of both the
@@ -285,7 +339,7 @@ func ParseLevel(s string) slog.Level {
 	case "error":
 		return slog.LevelError
 	default:
-		return slog.LevelDebug
+		return slog.LevelInfo
 	}
 }
 

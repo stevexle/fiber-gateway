@@ -3,7 +3,6 @@ package middleware
 import (
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
 
 	"github.com/fiber-gateway/pkg/balancer"
@@ -11,6 +10,16 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/proxy"
 	"github.com/valyala/bytebufferpool"
+	"github.com/valyala/fasthttp"
+)
+
+var (
+	headerUserID    = []byte("X-User-ID")
+	headerRole      = []byte("X-Role")
+	headerRealIP    = []byte("X-Real-IP")
+	headerProto     = []byte("X-Forwarded-Proto")
+	headerHost      = []byte("X-Forwarded-Host")
+	headerRequestID = []byte("X-Request-ID")
 )
 
 func ReverseProxy(lb balancer.Balancer) fiber.Handler {
@@ -19,25 +28,33 @@ func ReverseProxy(lb balancer.Balancer) fiber.Handler {
 		userID := c.Locals("user_id")
 		role := c.Locals("role")
 
-		// Performance: Fast path for headers without reflection for common types
+		// Performance: Fast path for headers without reflection using byte slices
 		if userID != nil {
+			var userIDBytes []byte
 			switch v := userID.(type) {
 			case uint:
-				c.Request().Header.Set("X-User-ID", strconv.FormatUint(uint64(v), 10))
+				userIDBytes = fasthttp.AppendUint(nil, int(v))
 			case int:
-				c.Request().Header.Set("X-User-ID", strconv.Itoa(v))
+				userIDBytes = fasthttp.AppendUint(nil, v)
 			default:
-				c.Request().Header.Set("X-User-ID", fmt.Sprintf("%v", v))
+				// Fallback only for unknown types, still using a buffer to avoid string allocation
+				userIDBytes = fmt.Appendf(nil, "%v", v)
 			}
-		}
-		if role != nil {
-			c.Request().Header.Set("X-Role", fmt.Sprintf("%v", role))
+			c.Request().Header.SetBytesKV(headerUserID, userIDBytes)
 		}
 
-		// Standard Proxy Headers (Nginx style)
-		c.Request().Header.Set("X-Real-IP", c.IP())
-		c.Request().Header.Set("X-Forwarded-Proto", c.Protocol())
-		c.Request().Header.Set("X-Forwarded-Host", c.Hostname())
+		if role != nil {
+			if r, ok := role.(string); ok {
+				c.Request().Header.SetBytesKV(headerRole, []byte(r))
+			} else {
+				c.Request().Header.SetBytesKV(headerRole, fmt.Appendf(nil, "%v", role))
+			}
+		}
+
+		// Standard Proxy Headers (Nginx style) using pre-allocated byte keys
+		c.Request().Header.SetBytesKV(headerRealIP, []byte(c.IP()))
+		c.Request().Header.SetBytesKV(headerProto, []byte(c.Protocol()))
+		c.Request().Header.SetBytesKV(headerHost, []byte(c.Hostname()))
 
 		// Performance: Safe path extraction
 		originalPath := c.Path()
@@ -54,7 +71,7 @@ func ReverseProxy(lb balancer.Balancer) fiber.Handler {
 			reqID, _ = utils.GenerateRandomString(16)
 			c.Set(fiber.HeaderXRequestID, reqID)
 		}
-		c.Request().Header.Set("X-Request-ID", reqID)
+		c.Request().Header.SetBytesKV(headerRequestID, []byte(reqID))
 
 		var lastTarget string
 		var lastErr error
